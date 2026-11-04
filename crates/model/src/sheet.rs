@@ -140,6 +140,9 @@ pub struct Sheet {
     pub comments: BTreeMap<CellRef, Comment>,
     #[serde(with = "crate::cellmap")]
     pub hyperlinks: BTreeMap<CellRef, Hyperlink>,
+    /// Evidence behind cells ([`crate::source`]). Not in the file: the host saves them beside it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty", with = "crate::cellmap")]
+    pub sources: BTreeMap<CellRef, crate::CellSource>,
     pub charts: Vec<Chart>,
     pub images: Vec<Image>,
     pub shapes: Vec<Shape>,
@@ -214,6 +217,7 @@ impl Sheet {
             autofilter: None,
             comments: BTreeMap::new(),
             hyperlinks: BTreeMap::new(),
+            sources: BTreeMap::new(),
             charts: vec![],
             images: vec![],
             shapes: vec![],

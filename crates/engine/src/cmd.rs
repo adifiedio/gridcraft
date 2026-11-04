@@ -21,6 +21,7 @@ pub mod review;
 pub mod sheet;
 pub mod slicer;
 pub mod solver;
+pub mod sources;
 pub mod spelling;
 pub mod stash;
 pub mod view;
@@ -171,6 +172,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(review::specs());
         v.extend(view::specs());
         v.extend(inspect::specs());
+        v.extend(sources::specs());
         v.extend(extra::specs());
         v.extend(macros::specs());
         v.extend(draw::specs());
@@ -405,6 +407,7 @@ pub(crate) fn commit<R>(d: &mut DocState, f: impl FnOnce(&mut Ctx) -> Result<R>)
     };
     let r = f(&mut ctx)?;
     let Ctx { mut wb, changed, structural, mut fit_rows, protection_checked, edits, .. } = ctx;
+    let refs_moved = structural || !edits.is_empty();
     // Equations whose source changed (or that arrived without a layout, as from a paste) are
     // laid out here, so painting only ever reads the cache.
     wb.refresh_equations();
@@ -438,6 +441,7 @@ pub(crate) fn commit<R>(d: &mut DocState, f: impl FnOnce(&mut Ctx) -> Result<R>)
     if let Some(t0) = t0 {
         eprintln!("commit: + recalc {:?}", since(t0));
     }
+    wb.refresh_sources(refs_moved);
     fit_rows.sort_unstable();
     fit_rows.dedup();
     for (si, row) in fit_rows {

@@ -157,6 +157,12 @@ fn do_sort(s: &mut Session, sheet: usize, r: RangeRef, header: bool, keys: Vec<S
             .flat_map(|(dst_i, &src_i)| lanes.iter().map(move |&k| (src_i, dst_i as u32, k)))
             .filter_map(|(src_i, dst_i, k)| sh.hyperlinks.get(&line(src_i, k)).map(|h| (line(dst_i, k), h.clone())))
             .collect();
+        let sources: Vec<_> = order
+            .iter()
+            .enumerate()
+            .flat_map(|(dst_i, &src_i)| lanes.iter().map(move |&k| (src_i, dst_i as u32, k)))
+            .filter_map(|(src_i, dst_i, k)| sh.sources.get(&line(src_i, k)).map(|src| (line(dst_i, k), src.clone())))
+            .collect();
         let mut moved: Vec<(CellRef, Option<Cell>)> = Vec::with_capacity(body.count() as usize);
         let mut pictures = Vec::new();
         for (dst_i, &src_i) in order.iter().enumerate() {
@@ -220,7 +226,9 @@ fn do_sort(s: &mut Session, sheet: usize, r: RangeRef, header: bool, keys: Vec<S
         for c in body.iter() {
             shm.comments.remove(&c);
             shm.hyperlinks.remove(&c);
+            shm.sources.remove(&c);
         }
+        shm.sources.extend(sources);
         for (at, cm) in side {
             shm.comments.insert(at, cm);
         }

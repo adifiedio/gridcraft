@@ -67,6 +67,14 @@ pub(super) fn remove_duplicates(s: &mut Session, p: &Json) -> Result<Json> {
                     .filter_map(move |col| sh.hyperlinks.get(&CellRef::new(*row, col)).map(|h| (CellRef::new(start + i as u32, col), h.clone())))
             })
             .collect();
+        let sources: Vec<_> = keep
+            .iter()
+            .enumerate()
+            .flat_map(|(i, row)| {
+                (r.start.col..=r.end.col)
+                    .filter_map(move |col| sh.sources.get(&CellRef::new(*row, col)).map(|src| (CellRef::new(start + i as u32, col), src.clone())))
+            })
+            .collect();
         let rows: Vec<Vec<Option<Cell>>> =
             keep.iter().map(|row| (r.start.col..=r.end.col).map(|c| sh.cell(CellRef::new(*row, c)).cloned()).collect()).collect();
         let shm = cx.sheet_mut(sheet)?;
@@ -80,8 +88,10 @@ pub(super) fn remove_duplicates(s: &mut Session, p: &Json) -> Result<Json> {
                 let at = CellRef::new(row, c);
                 shm.comments.remove(&at);
                 shm.hyperlinks.remove(&at);
+                shm.sources.remove(&at);
             }
         }
+        shm.sources.extend(sources);
         for (i, cells) in rows.into_iter().enumerate() {
             for (j, cell) in cells.into_iter().enumerate() {
                 if let Some(cell) = cell {

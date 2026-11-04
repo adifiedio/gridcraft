@@ -112,6 +112,7 @@ pub fn fill(cx: &mut Ctx, sheet: usize, src: RangeRef, target: RangeRef, mode: F
     let src_len = if vertical { src.height() } else { src.width() };
     let mut writes: Vec<(CellRef, Option<Cell>)> = Vec::new();
     let mut pictures = Vec::new();
+    let mut sources = Vec::new();
     for lane in lanes {
         let src_cells: Vec<(CellRef, Option<Cell>)> = (0..src_len)
             .map(|i| {
@@ -185,6 +186,11 @@ pub fn fill(cx: &mut Ctx, sheet: usize, src: RangeRef, target: RangeRef, mode: F
             if let Some(picture) = sh.cell_pictures.get(&sc) {
                 pictures.push((*t, picture.clone()));
             }
+            if mode != FillMode::Formats
+                && let Some(source) = sh.sources.get(&sc)
+            {
+                sources.push((*t, source.copy_with(sh.value(sc))));
+            }
             writes.push((*t, if cell.is_blank() { None } else { Some(cell) }));
         }
     }
@@ -199,6 +205,7 @@ pub fn fill(cx: &mut Ctx, sheet: usize, src: RangeRef, target: RangeRef, mode: F
         }
     }
     sh.cell_pictures.extend(pictures);
+    sh.sources.extend(sources);
     for (c, _) in writes {
         cx.touch(sheet, c);
     }

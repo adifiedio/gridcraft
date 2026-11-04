@@ -117,6 +117,9 @@ pub(super) fn paste_special(s: &mut Session, p: &Json) -> Result<Json> {
         // Check the whole footprint before the source is emptied, so a move that overflows the grid loses nothing.
         return Err(EngineError::Other("The cut area doesn't fit at this position; nothing was moved.".into()));
     }
+    // A pasted link is a cell of its own; anything else that brings the content brings its
+    // sources, and the edit's end drops them if the pasted value turned out different.
+    let brings_sources = !link && !matches!(what, What::Formats | What::Comments | What::Validation | What::ColumnWidths);
     edit(s, |cx| {
         // Styles from another workbook must be re-interned.
         let mut style_map = std::collections::HashMap::new();
@@ -128,10 +131,12 @@ pub(super) fn paste_special(s: &mut Session, p: &Json) -> Result<Json> {
         };
         let mut moved_formulas = Vec::new();
         let mut moved_pictures = std::collections::BTreeMap::new();
+        let mut moved_sources = std::collections::BTreeMap::new();
         if cut_move {
             // Remove the source first (contents and formats), and fix references to it.
             let source = cx.sheet_mut(clip.sheet)?;
             moved_pictures = source.cell_pictures.iter().filter(|(c, _)| src.contains(**c)).map(|(c, p)| (*c, p.clone())).collect();
+            moved_sources = source.sources.iter().filter(|(c, _)| src.contains(**c)).map(|(c, e)| (*c, e.clone())).collect();
             let taken = source.take_cells(src);
             // Notes, hyperlinks and merged areas sit beside the cells, and a cut takes them
             // with the block: the destination is written from the clipboard snapshot taken
@@ -139,6 +144,7 @@ pub(super) fn paste_special(s: &mut Session, p: &Json) -> Result<Json> {
             // clean instead of leaving one merged block and one note behind.
             source.comments.retain(|c, _| !src.contains(*c));
             source.hyperlinks.retain(|c, _| !src.contains(*c));
+            source.sources.retain(|c, _| !src.contains(*c));
             source.merges.retain(|m| !src.contains_range(m));
             for (c, _) in &taken {
                 cx.touch(clip.sheet, *c);
@@ -316,6 +322,8 @@ pub(super) fn paste_special(s: &mut Session, p: &Json) -> Result<Json> {
             if let Some(picture) = new_picture {
                 cx.sheet_mut(dest_sheet)?.cell_pictures.insert(dest, picture);
             }
+            let source = brings_sources.then(|| pasted_source(cut_move.then_some((&moved_sources, src_cell.as_ref())), src_sheet, sc)).flatten();
+            cx.sheet_mut(dest_sheet)?.sources.extend(source.map(|source| (dest, source)));
             cx.touch(dest_sheet, dest);
         }
         // Merged areas inside the copied block travel with it.
@@ -352,6 +360,20 @@ pub(super) fn paste_special(s: &mut Session, p: &Json) -> Result<Json> {
 }
 
 /// Applies a reference adjustment to every cell formula and defined name in the workbook.
+/// The sources for a paste of `sc`. A cut takes what the cells hold when it is pasted, which an
+/// edit since the cut may have changed (`cut`: their sources and the cell), and a copy what they
+/// held when copied.
+fn pasted_source(
+    cut: Option<(&std::collections::BTreeMap<CellRef, gridcraft_model::CellSource>, Option<&Cell>)>,
+    copied: &gridcraft_model::Sheet,
+    sc: CellRef,
+) -> Option<gridcraft_model::CellSource> {
+    match cut {
+        Some((moved, cell)) => moved.get(&sc).zip(cell).map(|(source, cell)| source.copy_with(cell.value.clone())),
+        None => copied.sources.get(&sc).map(|source| source.copy_with(copied.value(sc))),
+    }
+}
+
 pub(crate) fn rewrite_all_formulas(wb: &mut gridcraft_model::Workbook, target: &str, e: &gridcraft_formula::adjust::Edit) -> Result<()> {
     use gridcraft_formula::adjust::Edit;
     // Rows and columns inserted or deleted on the target sheet move its legacy array ranges too

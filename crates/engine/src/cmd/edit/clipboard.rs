@@ -103,6 +103,11 @@ fn slide_together(wb: &gridcraft_model::Workbook, sheet: usize, areas: &[RangeRe
                 dst.comments.insert(to, comment.clone());
             }
         }
+        for (c, source) in src.sources.iter().filter(|(c, _)| a.contains(**c)) {
+            if let Some(to) = c.offset(dr, dc) {
+                dst.sources.insert(to, source.copy_with(src.value(*c)));
+            }
+        }
         for m in src.merges.iter().filter(|m| a.contains_range(m)) {
             if let (Some(s), Some(e)) = (m.start.offset(dr, dc), m.end.offset(dr, dc)) {
                 dst.merges.push(RangeRef::new(s, e));
