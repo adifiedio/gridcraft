@@ -111,6 +111,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 paste_special
             )
         },
+        cmd!(noundo "edit.coalesceUndo", "Merge Undo Steps", [], None, "{} — one drag's steps of the same name become one", has_doc, coalesce_undo),
         cmd!(noundo "edit.clearClipboard", "Cancel Copy", [], Some("Escape"), "{}", has_doc, clear_clipboard),
         cmd!("edit.clearAll", "Clear All", ["Home", "Editing", "Clear"], None, "{range?}", has_doc, |s, p| clear(s, p, "all")),
         cmd!("edit.clearFormats", "Clear Formats", ["Home", "Editing", "Clear"], None, "{range?}", has_doc, |s, p| clear(s, p, "formats")),
@@ -373,6 +374,19 @@ fn clear(s: &mut Session, p: &Json, what: &str) -> Result<Json> {
 }
 
 // ---------------------------------------------------------------- format painter
+
+/// Merges the newest undo step into the one before it when they have the same name, as a drag's
+/// steps do. A command, so another engine following this one keeps the same history.
+fn coalesce_undo(s: &mut Session, _: &Json) -> Result<Json> {
+    let d = s.doc_mut()?;
+    if let [.., before, last] = d.undo.as_slice()
+        && before.label == last.label
+    {
+        d.undo.pop();
+        return Ok(json!({"merged": true}));
+    }
+    Ok(json!({"merged": false}))
+}
 
 fn format_painter(s: &mut Session, p: &Json) -> Result<Json> {
     if let Some(dest) = str_param(p, "apply").and_then(RangeRef::parse) {

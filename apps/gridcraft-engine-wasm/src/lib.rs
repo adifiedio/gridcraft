@@ -69,6 +69,19 @@ impl Engine {
         results.map(|r| json!(r).to_string()).map_err(|e| e.to_string())
     }
 
+    /// Starts keeping what a server needs to follow this engine.
+    #[wasm_bindgen(js_name = logEdits)]
+    pub fn log_edits(&mut self) {
+        self.session.edit_log.get_or_insert_default();
+    }
+
+    /// The commands logged since the last call, as a JSON array.
+    #[wasm_bindgen(js_name = takeEdits)]
+    pub fn take_edits(&mut self) -> Result<String, String> {
+        let edits = self.session.edit_log.as_mut().map(std::mem::take).unwrap_or_default();
+        serde_json::to_string(&edits).map_err(|e| e.to_string())
+    }
+
     /// Puts back the sources saved beside a file (`sources.set` params). Opening a file is not an
     /// edit, so this leaves nothing to undo.
     #[wasm_bindgen(js_name = restoreSources)]

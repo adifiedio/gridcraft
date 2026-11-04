@@ -1,7 +1,7 @@
 use super::editor::popup_dismissed;
 use super::geo::Geo;
 use super::tables::filter_table_range;
-use super::{Arc, Drag, FillTag, RangeRef, Rect, Sense, Sheet, SheetApp, Stroke, Tokens, col_to_letters, json, pos2, vec2};
+use super::{Drag, FillTag, RangeRef, Rect, Sense, Sheet, SheetApp, Stroke, Tokens, col_to_letters, json, pos2, vec2};
 
 /// Draws the filter-header popup: sort, search/select-all, apply/clear, a lazily installed table autofilter, new-open search focus and dismissal.
 pub(super) fn filter_menu(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, was_open: bool) {
@@ -16,19 +16,7 @@ pub(super) fn filter_menu(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, was_
     if sh.autofilter.is_none()
         && let Some(r) = table_range
     {
-        let _ = app.session.run("data.filter", json!({"range": r.a1()}));
-        let _ = app.session.run("data.filter", json!({"range": r.a1()}));
-        if let Some(sh2) = app.session.active().and_then(|d| d.wb.active()).map(|s| s.autofilter.is_some())
-            && !sh2
-        {
-            let d = app.session.active_mut();
-            if let Some(d) = d {
-                let wbm = Arc::make_mut(&mut d.wb);
-                if let Some(s) = wbm.sheet_mut(si) {
-                    s.autofilter = Some(gridcraft_engine::model::AutoFilter { range: r, criteria: vec![] });
-                }
-            }
-        }
+        let _ = app.session.run("data.filter", json!({"range": r.a1(), "install": true}));
     }
     let wb = app.session.active().map(|d| d.wb.clone()).unwrap_or(wb);
     let values = gridcraft_engine::cmd::data::filter_values(&wb, si, col);

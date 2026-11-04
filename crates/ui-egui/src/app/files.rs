@@ -75,6 +75,34 @@ impl SheetApp {
             .collect()
     }
 
+    /// Shows a host's copy of a workbook in place of everything open, and starts keeping what the
+    /// host needs to follow this session (`Session::edit_log`). `sources` is a `sources.set` list.
+    pub fn open_followed(&mut self, name: &str, bytes: &[u8], sources: serde_json::Value) -> Result<(), String> {
+        let base64 = gridcraft_engine::io::base64_encode(bytes);
+        self.run("file.open", json!({"name": name, "base64": base64}))?;
+        self.session.run("sources.set", json!({"entries": sources}))?;
+        while let Some(other) = (0..self.session.documents().len()).find(|i| *i != self.session.active_index()) {
+            self.session.close_document(other);
+        }
+        if let Some(d) = self.session.active_mut() {
+            d.undo.clear();
+            d.redo.clear();
+            d.saved = d.wb.clone();
+        }
+        self.session.edit_log = Some(Vec::new());
+        self.backstage = None;
+        self.after_engine();
+        Ok(())
+    }
+
+    /// Selects a cell a host points at and brings it into view.
+    pub fn go_to(&mut self, sheet: &str, cell: &str) -> Result<(), String> {
+        self.session.run("selection.set", json!({"sheet": sheet, "range": cell}))?;
+        self.grid.ensure_visible = true;
+        self.after_engine();
+        Ok(())
+    }
+
     /// Opens files that arrived asynchronously (web file picker, dropped files).
     pub(super) fn poll_async_opens(&mut self) {
         let arrived: Vec<(String, Vec<u8>)> = self

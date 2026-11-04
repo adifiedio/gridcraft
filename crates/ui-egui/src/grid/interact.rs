@@ -892,15 +892,7 @@ fn select_to_pointer(app: &mut SheetApp, geo: &Geo, sh: &Sheet, wb: &Workbook, p
 }
 
 fn coalesce_last_undo(app: &mut SheetApp) {
-    // Merge consecutive drag steps into one undo entry.
-    if let Some(d) = app.session.active_mut()
-        && d.undo.len() >= 2
-    {
-        let n = d.undo.len();
-        if d.undo[n - 1].label == d.undo[n - 2].label {
-            d.undo.remove(n - 1);
-        }
-    }
+    let _ = app.session.run("edit.coalesceUndo", json!({}));
 }
 
 fn scroll_by(app: &mut SheetApp, d: egui::Vec2) {

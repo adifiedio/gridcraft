@@ -457,6 +457,21 @@ pub enum UiRequest {
 /// the measure takes (egui's: see `theme::cell_text_width` in the UI crate).
 pub type TextWidth = Arc<dyn Fn(&str, &model::Font, bool) -> f32 + Send + Sync>;
 
+/// One top-level command as another engine must run it to reach the same workbook: run
+/// `selection.set` with `selection`, then the command. Logged when the command changed the workbook
+/// or holds something a later command uses (see [`KEEPS_FOR_LATER`]). `digest` is the workbook's
+/// [`content_digest`](gridcraft_model::Workbook::content_digest) after it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct LoggedCommand {
+    pub command: String,
+    pub params: Json,
+    pub selection: Json,
+    pub digest: String,
+}
+
+/// Commands that change no workbook but hold what later commands read, or change the undo history.
+const KEEPS_FOR_LATER: &[&str] = &["edit.copy", "edit.cut", "edit.clearClipboard", "edit.formatPainter", "edit.coalesceUndo"];
+
 #[derive(Default)]
 pub struct Session {
     docs: Vec<DocState>,
@@ -492,6 +507,8 @@ pub struct Session {
     /// The recording buffer while a recorder runs ([`Session::start_recording`]): top-level
     /// commands with the place they ran in, kept apart from the journal.
     pub recorder: Option<record::Recorder>,
+    /// When on, what a server needs to follow this session: see [`LoggedCommand`].
+    pub edit_log: Option<Vec<LoggedCommand>>,
     /// How many `execute` calls are running (0 between top-level commands).
     depth: u32,
     /// The steps the last successful `automate.runScript` or `macro.run` ran while a recorder was
@@ -714,6 +731,11 @@ impl Session {
             Some(d) => (d.uid, d.wb.active_sheet(), d.wb.active().map(|sh| sh.name.clone()).unwrap_or_default(), d.selection.clone()),
             None => (0, 0, String::new(), Selection::default()),
         });
+        // What the edit log needs from before the command: selection commands travel with the next edit.
+        let log_from = before.as_ref().filter(|_| self.depth == 0 && self.edit_log.is_some()).map(|(uid, wb, sel)| {
+            let sheet = wb.active().map(|sh| sh.name.clone()).unwrap_or_default();
+            (*uid, wb.clone(), serde_json::json!({"range": sel.a1(), "active": sel.active.a1(), "sheet": sheet}), params.clone())
+        });
         let doc_uid = before.as_ref().map(|(uid, ..)| *uid);
         let requests_before = self.ui_requests.len();
         let marked = doc_uid.zip(start).map(|(uid, (_, len))| (uid, len));
@@ -879,6 +901,16 @@ impl Session {
             self.group_step = None;
         } else if let Some(uid) = doc_uid {
             self.bound_tail(uid);
+        }
+        if result.is_ok()
+            && let Some((uid, wb, selection, params)) = log_from
+            && let Some(d) = self.docs.iter().find(|d| d.uid == uid)
+            && (!Arc::ptr_eq(&d.wb, &wb) || KEEPS_FOR_LATER.contains(&id))
+        {
+            let digest = d.wb.content_digest();
+            if let Some(log) = self.edit_log.as_mut() {
+                log.push(LoggedCommand { command: id.to_string(), params, selection, digest });
+            }
         }
         result
     }

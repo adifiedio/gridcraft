@@ -598,6 +598,15 @@ fn paint_borders(q: &mut QuadrantPaint<'_>, looks: &[(CellRef, Rect, Look, Optio
                 Stroke::NONE,
             ));
         }
+        // Where the value came from is on record: a corner in the theme's accent.
+        if sh.sources.contains_key(c) {
+            let s = 6.0 * z.max(0.7);
+            p.add(egui::Shape::convex_polygon(
+                vec![rect.right_bottom(), pos2(rect.right() - s, rect.bottom()), pos2(rect.right(), rect.bottom() - s)],
+                t.accent,
+                Stroke::NONE,
+            ));
+        }
         // Background error checking: a number stored as text gets Excel's green corner (#1994).
         if !sh.show_formulas && sh.cell(*c).and_then(gridcraft_engine::cmd::formulas::number_stored_as_text).is_some() {
             let s = 6.0 * z.max(0.7);
