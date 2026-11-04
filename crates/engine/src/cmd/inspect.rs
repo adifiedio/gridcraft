@@ -1,6 +1,9 @@
 //! Read-only commands for agents: inspect the workbook, read ranges, cell details.
 
+use std::collections::BTreeMap;
+
 use gridcraft_core::{CellRef, RangeRef, Value};
+use gridcraft_model::{PatternType, Sheet, Visibility, Workbook};
 use serde_json::{Value as Json, json};
 
 use super::{CommandSpec, EngineError, Result, Session, always, bad, bool_param, cell_param_on, cmd, has_doc, str_param, target_range, target_sheet};
@@ -9,6 +12,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "document.inspect", "Inspect Workbook", [], None, "{} → sheets, selection, names, tables, charts, dirty, trust (local|fromFile), history", has_doc, inspect),
         cmd!(query "sheet.read", "Read Range", [], None, "{range?: \"A1:D10\" (default: used range), sheet?, formulas?: bool, formatted?: bool} → rows of values", has_doc, read),
+        cmd!(query "document.cells", "Read All Cells", [], None, "{} → styles, sheets: [{name, hidden, protected, merges, tables, hiddenRows, hiddenCols, filteredRows, cells: [{r, c, v, f?, s?, spill?}]}], names: every occupied cell, for a host keeping a read model", has_doc, all_cells),
         cmd!(query "cell.get", "Get Cell", [], None, "{cell?, sheet?} → value, formula, display text, style, comment, link, sources, python {code, output, typeName, preview, stale}", has_doc, cell_get),
         cmd!(query "selection.stats", "Selection Statistics", [], None, "{} → count, sum, average, min, max", has_doc, sel_stats),
         cmd!(query "history.list", "Undo History", [], None, "{} → undo/redo labels, grouping (an undo group is open)", has_doc, history),
@@ -114,6 +118,66 @@ fn read(s: &mut Session, p: &Json) -> Result<Json> {
         rows.push(Json::Array(cols));
     }
     Ok(json!({"range": r.a1(), "sheet": sh.name, "values": rows}))
+}
+
+fn cell_row(wb: &Workbook, sh: &Sheet, c: CellRef, styles: &mut BTreeMap<u32, Json>) -> Json {
+    let mut row = json!({"r": c.row, "c": c.col, "v": value_json(&sh.value(c))});
+    if let Some(f) = sh.cell(c).and_then(|x| x.formula.as_ref()) {
+        row["f"] = json!(format!("={}", f.text));
+    }
+    if let Some(anchor) = sh.spill_anchor(c).or_else(|| sh.spill_ranges.contains_key(&c).then_some(c)) {
+        row["spill"] = json!(anchor.a1());
+    }
+    let id = sh.style_id(c);
+    if id.0 != 0 {
+        row["s"] = json!(id.0);
+        styles.entry(id.0).or_insert_with(|| {
+            let st = wb.styles.get(id);
+            json!({
+                "numFmt": st.num_fmt.0.as_ref(),
+                "bold": st.font.bold,
+                "color": st.font.color.hex(&wb.theme),
+                "fill": if st.fill.pattern == PatternType::None { None } else { st.fill.fg.hex(&wb.theme) },
+            })
+        });
+    }
+    row
+}
+
+fn all_cells(s: &mut Session, _: &Json) -> Result<Json> {
+    let wb = &s.doc()?.wb;
+    let mut styles = BTreeMap::new();
+    let mut sheets = Vec::with_capacity(wb.sheets.len());
+    for sh in &wb.sheets {
+        let mut cells: Vec<Json> = sh.cells.iter().map(|(c, _)| cell_row(wb, sh, c, &mut styles)).collect();
+        // What a formula spills holds no stored cell, and a write there would block the spill.
+        for r in sh.spill_ranges.values() {
+            for row in r.start.row..=r.end.row {
+                for col in r.start.col..=r.end.col {
+                    let c = CellRef::new(row, col);
+                    if sh.cell(c).is_none() {
+                        cells.push(cell_row(wb, sh, c, &mut styles));
+                    }
+                }
+            }
+        }
+        sheets.push(json!({
+            "name": sh.name,
+            "hidden": !matches!(sh.visibility, Visibility::Visible),
+            "protected": sh.protection.is_some(),
+            "merges": sh.merges.iter().map(RangeRef::a1).collect::<Vec<_>>(),
+            "tables": sh.tables.iter().map(|t| json!({"name": t.name, "range": t.range.a1()})).collect::<Vec<_>>(),
+            "hiddenRows": sh.rows.iter().filter(|(_, i)| i.hidden).map(|(r, _)| *r).collect::<Vec<_>>(),
+            "hiddenCols": sh.cols.iter().filter(|(_, i)| i.hidden).map(|(c, _)| *c).collect::<Vec<_>>(),
+            "filteredRows": sh.rows.iter().filter(|(r, _)| sh.is_row_filtered(**r)).map(|(r, _)| *r).collect::<Vec<_>>(),
+            "cells": cells,
+        }));
+    }
+    Ok(json!({
+        "styles": styles.into_iter().map(|(id, style)| (id.to_string(), style)).collect::<serde_json::Map<_, _>>(),
+        "sheets": sheets,
+        "names": wb.names.iter().map(|n| json!({"name": n.name, "refersTo": n.formula, "scope": n.scope.and_then(|i| wb.sheet(i)).map(|sh| sh.name.as_str()), "hidden": n.hidden})).collect::<Vec<_>>(),
+    }))
 }
 
 fn cell_get(s: &mut Session, p: &Json) -> Result<Json> {
