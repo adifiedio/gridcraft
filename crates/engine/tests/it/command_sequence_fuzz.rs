@@ -483,7 +483,36 @@ fn roundtrip_diff(wb: &Workbook) -> Result<(), String> {
     if wb.calc.mode == CalcMode::Automatic && !wb.calc.iterative {
         value_diff(wb, &back, "an XLSX save and reload").map_or(Ok(()), Err)?;
     }
+    if digest_without_sources(wb) != digest_without_sources(&back) {
+        return Err(digest_diff(wb, &back));
+    }
     Ok(())
+}
+
+/// Sources are saved beside the file, so a reload alone does not bring them back.
+fn digest_without_sources(wb: &Workbook) -> String {
+    let mut wb = wb.clone();
+    for sh in wb.sheets.iter_mut() {
+        Arc::make_mut(sh).sources.clear();
+    }
+    wb.content_digest()
+}
+
+fn digest_diff(a: &Workbook, b: &Workbook) -> String {
+    let content = |c: &gridcraft_engine::model::Cell| (c.formula.as_ref().map(|f| f.text.clone()), c.formula.is_none().then(|| c.value.clone()));
+    for (x, y) in a.sheets.iter().zip(&b.sheets) {
+        let holding = |s: &Sheet| {
+            s.cells.iter().filter(|(_, c)| c.formula.is_some() || !c.value.is_empty()).map(|(at, c)| (at, content(c))).collect::<Vec<_>>()
+        };
+        let (cx, cy) = (holding(x), holding(y));
+        if let Some((p, q)) = cx.iter().zip(&cy).find(|(p, q)| p != q) {
+            return format!("{}: digest differs after reload: {p:?} vs {q:?}", x.name);
+        }
+        if cx.len() != cy.len() {
+            return format!("{}: digest differs after reload: {} cells vs {}", x.name, cx.len(), cy.len());
+        }
+    }
+    "digest differs after reload".into()
 }
 
 /// The Watch Window list, which is workbook state but not an edit (undo keeps it).

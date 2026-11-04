@@ -11,6 +11,7 @@ use std::sync::Arc;
 use gridcraft_core::Value;
 use gridcraft_formula::{Expr, parse};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::{Cell, Formula, Workbook};
 
@@ -89,5 +90,39 @@ impl Workbook {
                 };
             }
         }
+    }
+}
+
+impl Workbook {
+    /// A hash of what the workbook holds: sheets, literal values, formula text and sources, which
+    /// a save and reopen keeps. Calculated values stay out, since `NOW()` and `RAND()` differ from
+    /// run to run and the same inputs otherwise calculate the same; formats stay out too.
+    pub fn content_digest(&self) -> String {
+        let mut hash = Sha256::new();
+        let mut field = |bytes: &[u8]| {
+            hash.update((bytes.len() as u64).to_le_bytes());
+            hash.update(bytes);
+        };
+        for sheet in &self.sheets {
+            field(sheet.name.as_bytes());
+            for (c, cell) in sheet.cells.iter().filter(|(_, cell)| cell.formula.is_some() || !cell.value.is_empty()) {
+                field(&c.row.to_le_bytes());
+                field(&c.col.to_le_bytes());
+                match (&cell.formula, &cell.value) {
+                    (Some(f), _) => field(f.text.as_bytes()),
+                    (None, Value::Number(n)) => field(&n.to_bits().to_le_bytes()),
+                    (None, Value::Text(t)) => field(t.as_bytes()),
+                    (None, Value::Bool(b)) => field(&[u8::from(*b)]),
+                    // A file keeps only the classic error kinds, so any error is just an error here.
+                    (None, Value::Error(_)) => field(b"error"),
+                    (None, other) => field(format!("{other:?}").as_bytes()),
+                }
+            }
+            for (c, source) in &sheet.sources {
+                field(c.a1().as_bytes());
+                source.links.iter().for_each(|link| field(link.as_bytes()));
+            }
+        }
+        hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
     }
 }

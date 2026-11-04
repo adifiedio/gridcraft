@@ -1,0 +1,18 @@
+[package]
+name = "gridcraft-engine-wasm"
+description = "The engine with no UI, for a host running it as WebAssembly"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gridcraft-engine = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = "0.2"
