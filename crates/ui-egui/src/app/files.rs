@@ -78,6 +78,13 @@ impl SheetApp {
     /// Shows a host's copy of a workbook in place of everything open, and starts keeping what the
     /// host needs to follow this session (`Session::edit_log`). `sources` is a `sources.set` list.
     pub fn open_followed(&mut self, name: &str, bytes: &[u8], sources: serde_json::Value) -> Result<(), String> {
+        let read_only = std::mem::take(&mut self.session.read_only);
+        let opened = self.replace_with_followed(name, bytes, sources);
+        self.session.read_only = read_only;
+        opened
+    }
+
+    fn replace_with_followed(&mut self, name: &str, bytes: &[u8], sources: serde_json::Value) -> Result<(), String> {
         let base64 = gridcraft_engine::io::base64_encode(bytes);
         self.run("file.open", json!({"name": name, "base64": base64}))?;
         self.session.run("sources.set", json!({"entries": sources}))?;

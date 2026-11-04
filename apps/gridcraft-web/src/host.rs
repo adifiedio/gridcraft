@@ -19,6 +19,7 @@
 //! - `gridcraft:selection` (to the parent): `{ sheet, range, active, links }` when the selection
 //!   moves. `links` is what the active cell cites.
 //! - `gridcraft:goto` (from the parent): `{ sheet, cell }`.
+//! - `gridcraft:editable` (from the parent): `{ editable }`, whether the user may change anything.
 //!
 //! Only the parent window on the page's own origin is heard or answered. In host mode the page
 //! starts with an empty workbook instead of a sample, and the parent guards leaving the page.
@@ -56,6 +57,7 @@ pub struct Bridge {
 enum Asked {
     Follow { name: String, bytes: Vec<u8>, sources: serde_json::Value },
     Goto { sheet: String, cell: String },
+    Editable(bool),
 }
 
 impl Bridge {
@@ -130,6 +132,7 @@ impl Bridge {
                     self.send(&fields);
                     *self.selection.borrow_mut() = None;
                 }
+                Asked::Editable(editable) => app.session.read_only = !editable,
                 Asked::Goto { sheet, cell } => {
                     if let Err(e) = app.go_to(&sheet, &cell) {
                         log::warn!("couldn't go to {sheet}!{cell}: {e}");
@@ -203,6 +206,12 @@ impl Bridge {
                         asked.borrow_mut().push(Asked::Follow { name, bytes, sources });
                         ctx.request_repaint();
                     }
+                    return;
+                }
+                Some("gridcraft:editable") => {
+                    let editable = js_sys::Reflect::get(&data, &"editable".into()).ok().and_then(|v| v.as_bool());
+                    asked.borrow_mut().push(Asked::Editable(editable.unwrap_or(false)));
+                    ctx.request_repaint();
                     return;
                 }
                 Some("gridcraft:goto") => {

@@ -68,3 +68,18 @@ fn typing_in_a_locked_cell_warns_without_a_stuck_draft() {
     assert_eq!(value(&h, "C2"), Value::text("keep"), "Undo of the unlocked cell's edit still works");
     assert!(h.state_mut().run("file.saveBytes", json!({"format": "xlsx"})).is_ok());
 }
+
+/// Keys that arrive within one slow frame all reach the cell, and stop at the key ending the edit.
+#[test]
+fn keys_typed_within_one_frame_all_reach_the_cell() {
+    let mut s = Session::new();
+    s.new_workbook();
+    s.execute("selection.set", json!({"cell": "A1"})).unwrap();
+    let mut h = crate::support::harness(s, 4);
+    h.input_mut().events.extend([Event::Text("7".into()), Event::Text("7".into())]);
+    h.run_steps(2);
+    assert_eq!(h.state().editor.as_ref().map(|e| e.text.as_str()), Some("77"));
+    type_text(&mut h, "8");
+    key(&mut h, Key::Enter);
+    assert_eq!(value(&h, "A1"), Value::Number(778.0));
+}

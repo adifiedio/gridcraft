@@ -507,6 +507,8 @@ pub struct Session {
     /// The recording buffer while a recorder runs ([`Session::start_recording`]): top-level
     /// commands with the place they ran in, kept apart from the journal.
     pub recorder: Option<record::Recorder>,
+    /// A host keeps the workbook and another editor has it: nothing here may change it.
+    pub read_only: bool,
     /// When on, what a server needs to follow this session: see [`LoggedCommand`].
     pub edit_log: Option<Vec<LoggedCommand>>,
     /// How many `execute` calls are running (0 between top-level commands).
@@ -691,6 +693,7 @@ impl Session {
         if id != "macro.debug" {
             macros::debug::drop_if_ended(self);
         }
+        self.check_writable(spec.undoable, id)?;
         let query = !spec.journal && !spec.undoable;
         // While a macro is being debugged its undo group is open, and its workbook is locked:
         // between steps only the debugger, queries and commands that look around run there
@@ -1089,6 +1092,13 @@ impl Session {
     /// command run by a command, and so on.
     pub fn depth(&self) -> u32 {
         self.depth
+    }
+
+    fn check_writable(&self, undoable: bool, id: &str) -> Result<()> {
+        if self.read_only && (undoable || matches!(id, "edit.undo" | "edit.redo")) {
+            return Err(EngineError::Disabled(id.to_string(), "This workbook is read-only.".into()));
+        }
+        Ok(())
     }
 
     /// Runs a command as a command in progress would (one level deeper), for tests of what a

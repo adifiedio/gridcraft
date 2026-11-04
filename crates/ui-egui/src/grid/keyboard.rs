@@ -42,7 +42,8 @@ pub(super) fn keyboard(app: &mut SheetApp, ctx: &egui::Context, resp: &egui::Res
     // Alt shortcuts type their character too on Windows and Linux (Alt+= sends Text("=")): once
     // a shortcut ran, that text must not start an edit over what it just did.
     let mut shortcut_ran = false;
-    for ev in events {
+    let mut events = events.into_iter();
+    while let Some(ev) = events.next() {
         match ev {
             egui::Event::Copy => {
                 app.copy_to_clipboard(ctx, "edit.copy");
@@ -59,10 +60,7 @@ pub(super) fn keyboard(app: &mut SheetApp, ctx: &egui::Context, resp: &egui::Res
             egui::Event::MiddleClickPaste { .. } => {}
             egui::Event::Text(_) if shortcut_pressed || shortcut_ran => {}
             egui::Event::Text(text) if text.chars().all(|c| !c.is_control()) && !text.is_empty() => {
-                app.begin_edit(Some(text), false);
-                if let Some(ed) = app.editor.as_mut() {
-                    ed.caret = ed.text.chars().count();
-                }
+                begin_typing(app, text, events);
                 return;
             }
             egui::Event::Key { key, physical_key, pressed: true, modifiers: m, .. } => {
@@ -154,4 +152,28 @@ pub(super) fn keyboard(app: &mut SheetApp, ctx: &egui::Context, resp: &egui::Res
             _ => {}
         }
     }
+}
+
+/// Starts an edit from typed text. Keys typed within one slow frame all belong to it, up to the
+/// key that would end it.
+fn begin_typing(app: &mut SheetApp, text: String, rest: impl Iterator<Item = egui::Event>) {
+    app.begin_edit(Some(text), false);
+    let Some(ed) = app.editor.as_mut() else { return };
+    for ev in rest {
+        match ev {
+            egui::Event::Text(more) if more.chars().all(|c| !c.is_control()) => {
+                ed.text.push_str(&more);
+                ed.completion = None;
+            }
+            egui::Event::Key { key, pressed: true, .. } if ends_typing(key) => break,
+            _ => {}
+        }
+    }
+    ed.caret = ed.text.chars().count();
+    ed.anchor = ed.caret;
+}
+
+fn ends_typing(key: egui::Key) -> bool {
+    use egui::Key;
+    matches!(key, Key::Enter | Key::Tab | Key::Escape | Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight)
 }

@@ -127,3 +127,18 @@ fn a_tables_filter_turns_on_outright_and_undoes() {
     run(&mut leader, "edit.undo", json!({}));
     assert!(!on(&leader));
 }
+
+#[test]
+fn a_read_only_session_looks_but_does_not_change() {
+    let (mut leader, _) = pair();
+    run(&mut leader, "cell.set", json!({"cell": "A1", "input": "1"}));
+    leader.read_only = true;
+    let before = digest(&leader);
+    assert!(leader.execute("cell.set", json!({"cell": "A1", "input": "2"})).is_err());
+    assert!(leader.execute("edit.undo", json!({})).is_err());
+    run(&mut leader, "selection.set", json!({"range": "B2"}));
+    run(&mut leader, "document.cells", json!({}));
+    assert_eq!(digest(&leader), before);
+    leader.read_only = false;
+    run(&mut leader, "cell.set", json!({"cell": "A1", "input": "2"}));
+}
